@@ -25,6 +25,11 @@ class Database:
     CATEGORY_COLLECTION = "category_collection"
     PRODUCT_COLLECTION = "product_collection"
     Gallery_COLLECTION = "gallery_collection"
+    ADD_TO_CART_COLLECTION = "add_to_cart_collection"
+    ORDER_COLLECTION="order_collection"
+    PAYMENT_SUCCESS_COLLECTION="payment_success_collection"
+    CUSTOMER_COLLECTION="customer_collection"
+    
     @staticmethod
     def InsertData(db_handle, collection_name, data):
         try:

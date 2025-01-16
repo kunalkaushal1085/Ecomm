@@ -34,4 +34,14 @@ urlpatterns = [
     path('edit-product', views.EditProductAPIView.as_view(), name='edit-products'),# product can edit by admin and seller 
     path('delete-product', views.DeleteProductAPIView.as_view(), name='delete-products'), 
     path('approved-product', views.AdminApproveProduct.as_view(), name='approved-product'),# admin can approve seller product
+    path('add-cart', views.AddToCartAPIView.as_view(), name='add-cart'),
+    path('remove-cart', views.RemoveFromCartAPIView.as_view(), name='remove-cart'),
+    path('remove-cart', views.RemoveFromCartAPIView.as_view(), name='remove-cart'),
+    path('buyer-product-list', views.ApprovedProductsAPIView.as_view(), name='buyer-product-list'),
+    path('Checkout-Session', views.CheckoutSessionView.as_view(), name='Checkout-Session'),
+    path('payment-success', views.PaymentSuccessAPIView.as_view(), name='payment-success'),
+    path('seller-order', views.SellerOrderApiView.as_view(), name='seller-order'),
+    path('order-tracking', views.OrderTrackingAPIView.as_view(), name='order-tracking'),
+    path('shipping-address', views.AddressFetchAPIView.as_view(), name='billing-shipping-address'),
+    path('account-details', views.AccountdetailsAPIview.as_view(), name='account-details'),
 ]

@@ -443,7 +443,7 @@ class GetCategoriesByProductType(APIView):
                             'created_at': category.get('created_at', ''),
                             'updated_at': category.get('updated_at', ''),
                             'status': category.get('status', ''),
-                        })
+                            })
             
             response_data = {
                 "bracelets": product_data.get("bracelets", []),
@@ -644,8 +644,12 @@ class GetUserListAPIView(APIView):
                     status=status.HTTP_403_FORBIDDEN
                 )
             processed_list = []
+            print("sellers-------------",sellers)
             for seller in sellers:
+                print('seller-->>>',seller)
+                print("Trueeeee", isinstance(seller, dict))
                 if isinstance(seller, dict):
+
                     seller['_id'] = str(seller.get('_id'))
                     processed_list.append(seller)
             return Response({
@@ -933,8 +937,620 @@ class AdminApproveProduct(APIView):
                 'status': status.HTTP_500_INTERNAL_SERVER_ERROR, 
                 'message': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
 
-# square the list
-my_list = [2, 3, 5, 7, 11]
-square_list = [i**2 for i in my_list]
-print(square_list,'????')
+class AddToCartAPIView(APIView):
+    def post(self, request):
+        """
+        Add a product to the user's cart.
+        """
+        user_id = request.data.get("user_id")
+        product_id = request.data.get("product_id")
+        quantity = request.data.get("quantity", 1)  # Default quantity is 1
+
+        # Validate inputs
+        if not user_id or not product_id:
+            return Response({"error": "User ID and Product ID are required."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            # Check if the product exists in the 'products' collection
+            db_handle, _ = get_db_handle()
+            product=Database.FindOne(db_handle, Database.PRODUCT_COLLECTION, {"_id": ObjectId(product_id)})
+            print('prodict---->>',product)
+            print('type prodict---->>',type(product))
+            if not product:
+                return Response({"error": "Product not found."}, status=status.HTTP_404_NOT_FOUND)
+
+            # Check if the product is already in the cart
+            # cart_item = Database.ADD_TO_CART_COLLECTION.find_one({"user_id": user_id, "product_id": product_id})
+            cart_item = Database.FindOne(db_handle, Database.ADD_TO_CART_COLLECTION, {"user_id": user_id, "product_id": product_id})
+            if cart_item:
+                # Update quantity if the product is already in the cart
+                Database.Update(db_handle, Database.ADD_TO_CART_COLLECTION,{"user_id": user_id, "product_id": product_id},{"$inc": {"quantity": quantity}})
+            else:
+                # Add a new product to the cart
+                Database.InsertData(
+                    db_handle, Database.ADD_TO_CART_COLLECTION,
+                    {
+                    "user_id": user_id,
+                    "product_id": product_id,
+                    "quantity": quantity,
+                    "added_date": datetime.utcnow()
+                    }
+)
+
+            return Response({"message": "Product added to cart successfully."}, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+
+class RemoveFromCartAPIView(APIView):
+    def post(self, request):
+        """
+        Remove a product from the user's cart.
+        """
+        user_id = request.data.get("user_id")
+        product_id = request.data.get("product_id")
+
+        # Validate inputs
+        if not user_id or not product_id:
+            return Response({"error": "User ID and Product ID are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # Convert product_id to ObjectId
+            try:
+                product_id = ObjectId(product_id)
+            except Exception:
+                return Response({"error": "Invalid Product ID format."}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Get the database handle
+            db_handle, _ = get_db_handle()
+
+            # Check if the product exists in the cart
+            cart_item = Database.FindOne(
+                db_handle,
+                Database.ADD_TO_CART_COLLECTION,
+                {"user_id": user_id, "product_id": str(product_id)}  # Use product_id as string in cart
+            )
+
+            if not cart_item:
+                return Response({"error": "Product not found in the cart."}, status=status.HTTP_404_NOT_FOUND)
+
+            # Remove the product from the cart
+            Database.Delete(
+                db_handle,
+                Database.ADD_TO_CART_COLLECTION,
+                {"user_id": user_id, "product_id": str(product_id)}
+            )
+
+            return Response({"message": "Product removed from cart successfully."}, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            # Log the error for debugging purposes
+            print(f"Error in RemoveFromCart API: {e}")
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+
+
+class ApprovedProductsAPIView(APIView):
+    def post(self, request):
+        """
+        Fetch all products approved by the admin and group them by product type (category name).
+        """
+        try:
+            db_handle, _ = get_db_handle()
+
+            # Fetch all approved products (with status 'approve')
+            approved_products = Database.FindAll(
+                db_handle,
+                Database.PRODUCT_COLLECTION,
+               {"status": {"$in": ["approve", "admin"]}}  # The query is used to filter products with "approve" status
+            )
+
+            # Fetch all categories
+            categories = Database.FindAll(db_handle, Database.CATEGORY_COLLECTION, {})  # Empty query to get all categories
+
+            if not approved_products:
+                print("No approved products found in the database.")
+                return Response({
+                    "status": status.HTTP_404_NOT_FOUND,
+                    "message": "No approved products found."
+                }, status=status.HTTP_404_NOT_FOUND)
+
+            # Create a mapping of category_id to category name
+            category_mapping = {str(category["_id"]): category["product_type"] for category in categories}
+
+            # Initialize a dictionary to group products by product type (category name)
+            categorized_products = {}
+
+            # Loop through approved products
+            for product in approved_products:
+                # Get the category_id and map it to the category name
+                category_id = product.get("category_id", "").strip()
+                product_type = category_mapping.get(category_id, "Unknown Category")
+
+                # Ensure product type exists in categorized_products
+                if product_type not in categorized_products:
+                    categorized_products[product_type] = []
+
+                # Add the product details to the appropriate product type
+                categorized_products[product_type].append({
+                    "id": str(product.get("_id", "")),  # Convert ObjectId to string
+                    "title": product.get("name", ""),
+                    "short_description": product.get("short_description", ""),
+                    "price": product.get("price", "0"),
+                    "discount_percentage":product.get("discount_percentage"),
+                    "discount_price": product.get("discount_price", "0"),
+                    "product_type": product_type,  # Add product type (category name)
+                    "featured_image": product.get("featured_image", ""),
+                    "tag":product.get("tag"),
+                    "gallery_images":product.get("gallery_images"),
+                    "created_at": product.get("created_at", ""),
+                    "updated_at": product.get("updated_at", ""),
+                    "status": product.get("status", "")
+                })
+
+            # Debugging: Print the final categorized products
+            print("Categorized Products:", categorized_products)
+
+            # Return the response with categorized products
+            return Response({
+                "status": status.HTTP_200_OK,
+                "message": "Fetched successfully.",
+                "products": categorized_products
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            # Log the error for debugging
+            print(f"Error in ApprovedProducts API: {e}")
+            return Response({
+                "status": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "message": "An error occurred while fetching approved products.",
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+
+
+import stripe
+stripe.api_key = "sk_test_51Qez1qGhEzHZ6hIbCqEYvKkGMeXWR30BpGLYxgyqPPifMMgQiswU3nazRQrgv4uBINyb5KozOSyWycUATSGgJu2600gtFV8B5R"
+
+class CheckoutSessionView(APIView):
+    def post(self, request):
+        """
+        Creates a Stripe payment session for the user based on the items in the cart.
+        This view does not require frontend interaction.
+        """
+        # Fetch product_id and quantity from the request
+        getcustomerID = decode_token(request)  # Implement this function to decode the token
+        print("Decoded Customer ID:", getcustomerID) 
+        customer_id = request.data.get("customer_id", getcustomerID)
+        product_id = request.data.get("product_id")
+        quantity = request.data.get("quantity", 1)
+        if quantity:
+            quantity=int(quantity)
+        # Validate the inputs
+        if not product_id:
+            return Response({"error": "Product ID is required."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if not isinstance(quantity, int) or quantity <= 0:
+            return Response({"error": "Quantity must be a positive integer."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Fetch the product from the database
+        db_handle, _ = get_db_handle()
+        product = Database.FindOne(db_handle, Database.PRODUCT_COLLECTION, {"_id": ObjectId(product_id)})
+        print("product---->>>",product)
+        if not product:
+            return Response({"error": "Product not found."}, status=status.HTTP_404_NOT_FOUND)
+        seller_id = product.get("sellert_id","")
+        
+        # Calculate the total price and prepare line items
+        price = int(product.get("price", 0))  # Assume price is stored in the product collection
+        print("price-----",type(price))
+        if not price:
+            return Response({"error": "Product price is missing or invalid."}, status=status.HTTP_400_BAD_REQUEST)
+
+        total_amount = price * quantity  
+        line_items = [
+            {
+                'price_data': {
+                    'currency': 'usd',
+                    'product_data': {
+                        'name': product.get("name", "Unknown Product"),
+                    },
+                    'unit_amount': int(price )*100,  
+                },
+                'quantity': quantity,
+            }
+        ]
+        print("dgfh____>>>>",line_items)
+        
+        # Create a payment session on Stripe
+        try:
+            # Optionally, store the order in the database (MongoDB)
+            order_data = {
+                "product_id": product_id,
+                "quantity": quantity,
+                "customer_id":customer_id,
+                "seller_id":seller_id,
+                "total_amount": total_amount,
+                # "stripe_session_id": session.id,
+                "status": "pending",
+                "created_at": datetime.utcnow()
+            }
+            order_id = Database.InsertData(db_handle, Database.ORDER_COLLECTION, order_data)
+            print('order-id--->>',order_id)
+            session = stripe.checkout.Session.create(
+                payment_method_types=['card'],
+                line_items=line_items,
+                mode='payment',
+                success_url=f'http://localhost:3000/payment-success?order_id={order_id}',  # URL for successful payment
+                cancel_url=f'http://localhost:3000/payment-cancel/',    # URL for canceled payment
+            )
+
+            # update the  databse
+            session_data={
+                    "stripe_session_id": session.id,
+            }
+            updt=Database.Update(db_handle,Database.ORDER_COLLECTION,{"_id": ObjectId(order_id)}, session_data)
+
+            
+            return Response({"session_id": session.id,"customer_id":customer_id,"session_url": session.url, "order_id": str(order_id)}, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+
+
+class PaymentSuccessAPIView(APIView):
+    def post(self, request):
+        try:
+            db_handle, _ = get_db_handle()
+
+            # Extract data from the request
+            order_id = request.data.get("order_id")
+            print('order_id---->>>',order_id)
+            # Validate required fields
+            if not order_id:
+                return Response({
+                    "message": "order_id are required field."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Prepare the combined data for insertion
+            order_and_payment_data = {
+                "status": "Paid",  
+                # "payment_method": "Card", 
+                "new": True, 
+            }
+
+            print("Combined Order and Payment Data:", order_and_payment_data)
+
+            # Insert the combined data into the database
+            order_detail = Database.Update(db_handle, Database.ORDER_COLLECTION,  {"_id": ObjectId(order_id)}, order_and_payment_data)
+
+            return Response({
+                "message": "Order and payment details stored successfully.",
+                "order_detail": str(order_detail)
+            }, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            return Response({
+                "message": "An error occurred while storing order and payment details.",
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+
+class SellerOrderApiView(APIView):
+    def post(self, request):
+        try:
+            db_handle, _ = get_db_handle()
+
+            # Query to fetch new orders
+            query = {"new": True}
+            print("Executing query:", query)
+
+            # Fetch new orders
+            orders = list(db_handle[Database.PAYMENT_SUCCESS_COLLECTION].find(query))
+
+            # If no orders are found, return early
+            if not orders:
+                return Response({
+                    "message": "No new orders found.",
+                    "data": []
+                }, status=status.HTTP_200_OK)
+
+            result = []
+            seen_order_ids = set()
+            for order in orders:
+                if order["order_id"] in seen_order_ids:
+                    continue
+                seen_order_ids.add(order["order_id"])
+
+                product_detail = {}
+                customer_detail = {}
+
+                # Fetch product details
+                product = Database.FindOne(db_handle, Database.PRODUCT_COLLECTION, {"_id": ObjectId(order["product_id"])})
+                if product:
+                    product_detail = {
+                        "product_name": product.get("name"),
+                        "product_price": product.get("price"),
+                        "product_description": product.get("description"),
+                    }
+
+                # Validate and fetch customer details
+                customer_id = order["customer_id"]
+                if customer_id:
+                    try:
+                        customer = Database.FindOne(db_handle, Database.USER_COLLECTION, {"_id": ObjectId(order['customer_id'])})
+                        if customer:
+                            customer_detail = {
+                                "customer_name": customer.get("first_name"),
+                                "customer_email": customer.get("email"),
+                                "customer_phone": customer.get("phone_number"),
+                            }
+                        else:
+                            print(f"No customer found with ID: {customer_id}")
+                    except Exception as e:
+                        print(f"Error fetching customer with ID {customer_id}: {e}")
+                else:
+                    print(f"Skipping order {order['_id']} due to missing customer_id")
+
+                # Add details to the order
+                order["_id"] = str(order["_id"])
+                order["product_details"] = product_detail
+                order["customer_details"] = customer_detail
+
+                # Append the enriched order to the result list
+                result.append(order)
+
+            print("Final result:", result)  # Debugging: Log the final result
+
+            return Response({
+                "message": "New orders retrieved successfully.",
+                "data": result
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            print(f"Error occurred: {str(e)}")  # Debugging: Log exceptions
+            return Response({
+                "message": "An error occurred while fetching seller orders.",
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+class OrderTrackingAPIView(APIView):
+    def post(self, request):
+        try:
+            db_handle, _ = get_db_handle()
+
+            # Get `order_id` from the query params
+            order_id = request.data.get("order_id")
+            print("order_id------",order_id)
+            if not order_id:
+                return Response({
+                    "message": "Order ID is required to track an order."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Find the order in the database using `order_id`
+            order = db_handle[Database.PAYMENT_SUCCESS_COLLECTION].find_one({"order_id": order_id})
+
+            if not order:
+                return Response({
+                    "message": f"No order found with order_id: {order_id}"
+                }, status=status.HTTP_404_NOT_FOUND)
+
+            # Fetch additional product details
+            product = Database.FindOne(db_handle, Database.PRODUCT_COLLECTION, {"_id": ObjectId(order["product_id"])})
+            product_details = {
+                "product_name": product.get("name"),
+                "product_price": product.get("price"),
+                "short_description": product.get("short_description"),
+            } if product else {}
+
+            # Prepare the response with order tracking information
+            order_tracking_details = {
+                "order_id": order.get("order_id"),
+                "customer_id": order.get("customer_id"),
+                "product_id": order.get("product_id"),
+                "price": order.get("price"),
+                "quantity": order.get("quantity"),
+                "currency": order.get("currency"),
+                "delivery_status": order.get("delivery_status"),
+                "payment_status": order.get("payment_status"),
+                "created_at": order.get("created_at"),
+                "product_details": product_details,
+            }
+
+            return Response({
+                "message": "Order tracking details retrieved successfully.",
+                "data": order_tracking_details
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            print(f"Error occurred: {str(e)}")  # Debugging: Log exceptions
+            return Response({
+                "message": "An error occurred while fetching order tracking details.",
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+
+
+
+class AddressFetchAPIView(APIView):
+    def post(self, request):
+        """
+        Fetch the address field for a user from the `user_collection`.
+        """
+        try:
+            # Decode the user ID from the token
+            getuserID = decode_token(request)  # Implement this function to decode the token
+            print("Decoded Customer ID:", getuserID)
+            user_id = request.data.get("customer_id", getuserID)
+
+            if not user_id:
+                return Response({"error": "Invalid or missing customer_id."}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Get the database handle
+            db_handle, _ = get_db_handle()
+
+            # Fetch the user document from the collection
+            user = Database.FindOne(db_handle,Database.USER_COLLECTION,{"_id": ObjectId(user_id)})
+
+            if not user:
+                return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+            # Extract the address array (default to an empty array if not present)
+            address_list = user.get("address", [])
+
+            return Response({"address": address_list}, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+    def put(self, request):
+        """
+        Update the address field for a user in the `user_collection`.
+        """
+        getuserID = decode_token(request)  # Implement this function to decode the token
+        print("Decoded Customer ID:", getuserID)
+        user_id = request.data.get("customer_id", getuserID)
+        new_address = request.data.get("address")
+
+        # Validate the inputs
+        if not user_id:
+            return Response({"error": "Invalid or missing customer_id."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # if not new_address or not isinstance(new_address, dict):
+        #     return Response({
+        #         "error": "Invalid or missing address. Address must be an object with fields: street, city, state, country, zip_code."
+        #     }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validate the structure of the address object
+        required_fields = ["street", "city", "state", "country", "zip_code"]
+        missing_fields = [field for field in required_fields if field not in new_address]
+
+        if missing_fields:
+            return Response({
+                "error": f"Missing fields in address: {', '.join(missing_fields)}."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # Get the database handle
+            db_handle, _ = get_db_handle()
+
+            # Check if the user exists
+            user = Database.FindOne(
+                db_handle,
+                Database.USER_COLLECTION,
+                {"_id": ObjectId(user_id)}
+            )
+
+            if not user:
+                return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+            # Update the address field without replacing the whole document
+            update_result = Database.Update(db_handle,Database.USER_COLLECTION,{"_id": ObjectId(user_id)}, {"address":new_address})
+            if update_result.modified_count == 0:
+                return Response({
+                    "error": "Address update failed. No changes detected or user not found."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            return Response({"message": "Address updated successfully."}, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+
+
+class AccountdetailsAPIview(APIView):
+    def post(self,request):
+        try:
+            getuserID = decode_token(request)  # Implement this function to decode the token
+            print("Decoded Customer ID:", getuserID)
+            user_id = request.data.get("customer_id", getuserID)
+
+            if not user_id:
+                return Response({"error": "Invalid or missing customer_id."}, status=status.HTTP_400_BAD_REQUEST)
+            db_handle, _ = get_db_handle()
+            user = Database.FindOne(db_handle,Database.USER_COLLECTION,{"_id": ObjectId(user_id)})
+
+            if not user:
+                return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+            
+            username_list = user.get("username", [])
+            firstname_list = user.get("first_name", [])
+            lastname_list = user.get("last_name", [])
+            email_list = user.get("email", [])
+            phonenumber_list = user.get("phone_number", [])
+
+            return Response({"username": username_list,"first_name": firstname_list,"last_name": lastname_list,"email": email_list,"phone_number": phonenumber_list}, status=status.HTTP_200_OK)
+        
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+    def put(self, request):
+        """
+        Update the address field for a user in the `user_collection`.
+        """
+        getuserID = decode_token(request)  # Implement this function to decode the token
+        print("Decoded Customer ID:", getuserID)
+        user_id = request.data.get("customer_id", getuserID)
+        new_username = request.data.get("username")
+        new_first_name = request.data.get("first_name")
+        new_last_name = request.data.get("last_name")
+        new_email = request.data.get("email")
+        new_phone_number = request.data.get("phone_number")
+
+        # Validate the inputs
+        if not user_id:
+            return Response({"error": "Invalid or missing customer_id."}, status=status.HTTP_400_BAD_REQUEST)
+        
+
+        try:
+            # Get the database handle
+            db_handle, _ = get_db_handle()
+
+            # Check if the user exists
+            user = Database.FindOne(
+                db_handle,
+                Database.USER_COLLECTION,
+                {"_id": ObjectId(user_id)}
+            )
+
+            if not user:
+                return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+            
+            if new_email:
+                email_exists = Database.FindOne(
+                    db_handle,
+                    Database.USER_COLLECTION,
+                    {"email": new_email, "_id": {"$ne": ObjectId(user_id)}}  # Exclude the current user
+                )
+                if email_exists:
+                    return Response(
+                        {"error": "The email address is already in use by another account."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            # Update the address field without replacing the whole document
+            update_result = Database.Update(db_handle,Database.USER_COLLECTION,{"_id": ObjectId(user_id)}, {"username":new_username,"first_name":new_first_name,"last_name":new_last_name,"email":new_email,"phone_number":new_phone_number})
+            if update_result.modified_count == 0:
+                return Response({
+                    "error": "All update failed. No changes detected or user not found."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            return Response({"message": "All fields updated successfully."}, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
