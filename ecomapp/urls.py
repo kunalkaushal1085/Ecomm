@@ -36,7 +36,6 @@ urlpatterns = [
     path('approved-product', views.AdminApproveProduct.as_view(), name='approved-product'),# admin can approve seller product
     path('add-cart', views.AddToCartAPIView.as_view(), name='add-cart'),
     path('remove-cart', views.RemoveFromCartAPIView.as_view(), name='remove-cart'),
-    path('remove-cart', views.RemoveFromCartAPIView.as_view(), name='remove-cart'),
     path('buyer-product-list', views.ApprovedProductsAPIView.as_view(), name='buyer-product-list'),
     path('Checkout-Session', views.CheckoutSessionView.as_view(), name='Checkout-Session'),
     path('payment-success', views.PaymentSuccessAPIView.as_view(), name='payment-success'),
