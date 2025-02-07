@@ -26,14 +26,15 @@ class RegisterTestCase(APITestCase):
     def create_user(self):
         
         try:
-            unique_email = f"admin{int(time.time())}@yopmail.com"
+            unique_email = f"ram@yopmail.com"
+            # unique_email = f"admin{int(time.time())}@yopmail.com"
             _data = {
-                "first_name":"admin",
-                "last_name":"admin",
+                "first_name":"ram",
+                "last_name":"sharma",
                 "email":unique_email,
                 "password":"12345",
-                "username":"admin",
-                "role": "admin",
+                "username":"ram",
+                "role": "seller",
                 "phone_number": "1234567890",
                 "address": [
                     {

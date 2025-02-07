@@ -433,9 +433,11 @@ class GetCategoriesByProductType(APIView):
                     category = convert_objectid_to_str(category) 
                     
                     category_product_type = category.get("product_type", "").strip().lower()
+                    print(category_product_type,'category_product_type')
                     if category_product_type in product_data:
                         print(f"Adding category {category['title']} to product type {category_product_type}") 
                         product_data[category_product_type].append({
+                            '_id': category.get('_id', ''),
                             'title': category.get('title', ''),
                             'short_description': category.get('short_description', ''),
                             'image': category.get('image', ''),
@@ -451,12 +453,12 @@ class GetCategoriesByProductType(APIView):
                 "rings": product_data.get("ring", []),
                 "necklaces": product_data.get("necklaces", [])
             }
-            
+           
             # Return the formatted response
             return Response({
                 'status': status.HTTP_200_OK,
                 'message': 'Product categories fetched successfully',
-                'data': response_data
+                'data': response_data,
             }, status=status.HTTP_200_OK)
 
         except Exception as e:
@@ -623,35 +625,43 @@ class AddProductView(APIView):
 class GetUserListAPIView(APIView):
     def post(self, request):
         try:
+            # Decode the token to retrieve the seller ID from the request
             getsellerID = decode_token(request)
-            print(getsellerID)
             # If the seller ID is not found, return an error
             if not getsellerID:
                 return Response({'error': 'Please login again or check the token.'}, status=status.HTTP_403_FORBIDDEN)
+            # Retrieve the database connection handle
             db_handle, _ = get_db_handle()
+            # Find the user data based on the decoded seller ID
             user_data = Database.FindOne(db_handle, Database.USER_COLLECTION, {"_id": ObjectId(getsellerID)})
-            print(user_data,'user data +--------')
+            # If user data is not found, return a "User not found" error
             if not user_data:
                 return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+            # Initialize empty lists for sellers and buyers
+            sellers, buyers = [], []
+            # Get the role of the user (admin, seller, or buyer)
             user_role = user_data['role']
             if user_role == 'admin':
-                sellers = Database.FindAll(db_handle, Database.USER_COLLECTION, {"role":"seller"})
+                users = list(Database.FindAll(db_handle, Database.USER_COLLECTION, {"role": {"$in": ["seller", "buyer"]}}))
+                sellers = [user for user in users if user.get('role') == 'seller']
+                buyers = [user for user in users if user.get('role') == 'buyer']
             elif user_role == 'seller':
                 sellers = [user_data]
+                buyers = []
+            elif user_role == 'buyer':
+                buyers = [user_data]
+                sellers = []
             else:
-                return Response(
-                    {'error': 'Invalid role. Access denied.'},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-            processed_list = []
-            for seller in sellers:
-                if isinstance(seller, dict):
-                    seller['_id'] = str(seller.get('_id'))
-                    processed_list.append(seller)
+                # If the user's role is invalid, return an access denied error
+                return Response({'error': 'Invalid role. Access denied.'}, status=status.HTTP_403_FORBIDDEN)
+            processed_sellers = self.process_users(sellers)
+            processed_buyers = self.process_users(buyers)
+            # Return a success response with the processed lists of sellers and buyers
             return Response({
                 "status": status.HTTP_200_OK,
                 "message": "Users fetched successfully.",
-                "data": processed_list
+                "data": processed_sellers,
+                "buyers": processed_buyers
             }, status=status.HTTP_200_OK)
             
         except Exception as e:
@@ -659,6 +669,19 @@ class GetUserListAPIView(APIView):
                 {'error': f'Error fetching products: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    @staticmethod
+    def process_users(users):
+        """
+        Process user list by converting ObjectId to string.
+        """
+        processed_users = []
+        for user in users:
+            if isinstance(user, dict):
+                user['_id'] = str(user.get('_id'))
+                processed_users.append(user)
+        return processed_users
+
 
 #Get product list admin and seller
 class GetAllProductListAPIView(APIView):
@@ -682,8 +705,93 @@ class GetAllProductListAPIView(APIView):
                 return Response({'error': 'No products found.'}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             return Response({'error': f'Error retrieving product list: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import InMemoryUploadedFile, TemporaryUploadedFile
+# # Edit category
+# class EditCategoryAPIView(APIView):
+#     def put(self, request):
+#         try:
+#             getsellerID = decode_token(request)
+#             if not getsellerID:
+#                 return Response({'error': 'Please login again or check the token.'}, status=status.HTTP_403_FORBIDDEN)
 
-# Edit category
+#             category_id = request.data.get("category_id")
+#             if not category_id:
+#                 return Response({'error': 'Category ID is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+#             db_handle, _ = get_db_handle()
+
+#             category = Database.FindOne(db_handle, Database.CATEGORY_COLLECTION, {"_id": ObjectId(category_id)})
+#             print(category,'category')
+#             if not category:
+#                 return Response({'error': 'Category not found.'}, status=status.HTTP_404_NOT_FOUND)
+#             title = request.data.get('title', category['title'])
+#             short_description = request.data.get('short_description', category['short_description'])
+#             product_type = request.data.get('product_type', category['product_type'])
+#             uploaded_images = request.data.get('image')
+
+#             # Get existing images from the database
+#             existing_images = category.get('image', [])
+
+#             # Prepare list to store image URLs
+#             image_urls = existing_images.copy()
+#             image_urls = []
+
+#             if type(uploaded_images)!=str:
+#                 protocol = "https" if request.is_secure() else "http"
+#                 host = request.get_host()
+#                 image_dir = os.path.join(settings.MEDIA_ROOT, 'category_images')
+
+#                 if not os.path.exists(image_dir):
+#                     os.makedirs(image_dir)
+#                 for image in uploaded_images:
+#                     # if isinstance(image, InMemoryUploadedFile):
+#                     # Ensure it's an instance of InMemoryUploadedFile
+#                     print(f'Handling file upload: {image.name}')
+#                     image_name = f"{title.replace(' ', '_')}_{datetime.utcnow().timestamp()}_{Path(image.name).suffix}"
+#                     image_path = os.path.join(image_dir, image_name)
+
+#                     # Save the image to the file system
+#                     with open(image_path, 'wb') as f:
+#                         for chunk in image.chunks():
+#                             f.write(chunk)
+
+#                     # Generate the image URL
+#                     image_url = f"{protocol}://{host}/media/category_images/{image_name}"
+#                     image_urls.append(image_url)
+#             # else:
+#             #     print('inside else')
+#             #     # If no new images are uploaded, use the existing images
+#             #     image_urls = existing_images
+#             #     print(image_urls,'image urls')
+#             if not title or not short_description or not product_type:
+#                 return Response({'error': 'Title, short description, and product type are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+#             # Step 6: Prepare the data to update the category
+#             update_data = {
+#                 "title": title,
+#                 "short_description": short_description,
+#                 "product_type": product_type,
+#                 "image": image_urls,  
+#                 "updated_at": datetime.utcnow().isoformat()  # Set the updated timestamp
+#             }
+#             if type(uploaded_images)!=str:
+#                 update_data["image"] = image_urls 
+#             update_result = Database.Update(db_handle, Database.CATEGORY_COLLECTION, {"_id": ObjectId(category_id)}, update_data)
+#             if update_result.matched_count == 0:
+#                 return Response({'error': 'Failed to update category.'}, status=status.HTTP_400_BAD_REQUEST)
+#             return Response({
+#                 'status': 'Category updated successfully!',
+#                 'category_id': category_id,
+#                 'updated_data': update_data,
+#                 # 'image_urls': image_urls
+#             }, status=status.HTTP_200_OK)
+
+#         except Exception as e:
+#             return Response({'error': f'Error updating category: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
 class EditCategoryAPIView(APIView):
     def put(self, request):
         try:
@@ -700,56 +808,76 @@ class EditCategoryAPIView(APIView):
             category = Database.FindOne(db_handle, Database.CATEGORY_COLLECTION, {"_id": ObjectId(category_id)})
             if not category:
                 return Response({'error': 'Category not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+            # Retrieve values from request data, falling back to current category values
             title = request.data.get('title', category['title'])
             short_description = request.data.get('short_description', category['short_description'])
             product_type = request.data.get('product_type', category['product_type'])
-            uploaded_images = request.FILES.getlist('image')
+            uploaded_images = request.FILES.getlist('image') or  request.data.get('image')
+            print(uploaded_images,'uploaded_images')
+            # Get existing images from the database
             existing_images = category.get('image', [])
-            image_urls = []
 
-            if uploaded_images:
+            # Prepare list to store image URLs
+            # image_urls = existing_images.copy()  # Start with existing images
+            # print(image_urls,'image_urls')
+            # If new images are uploaded, process them
+            if type(uploaded_images)!=str:
                 protocol = "https" if request.is_secure() else "http"
                 host = request.get_host()
                 image_dir = os.path.join(settings.MEDIA_ROOT, 'category_images')
 
+                # Ensure image directory exists
                 if not os.path.exists(image_dir):
                     os.makedirs(image_dir)
+                image_urls =[]
+                # Handle each uploaded image
                 for image in uploaded_images:
-                    image_name = f"{title.replace(' ', '_')}_{datetime.utcnow().timestamp()}_{Path(image.name).suffix}"
+                    print('inasei loop')
+                    print(image,'image')
+                    image_name = f"{title.replace(' ', '_')}_{datetime.utcnow().timestamp()}{Path(image.name).suffix}"
                     image_path = os.path.join(image_dir, image_name)
+
+                    # Save the image to disk
                     with open(image_path, 'wb') as f:
                         for chunk in image.chunks():
                             f.write(chunk)
 
-                    # Generate the image URL
+                    # Generate the URL for the uploaded image
                     image_url = f"{protocol}://{host}/media/category_images/{image_name}"
-                    image_urls.append(image_url)
+                    image_urls.append(image_url)  # Add the new image URL to the list
             else:
-                # If no new images are uploaded, use the existing images
+                print('insie eslse')
                 image_urls = existing_images
+            # Ensure required fields are present
             if not title or not short_description or not product_type:
                 return Response({'error': 'Title, short description, and product type are required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Step 6: Prepare the data to update the category
+            # Prepare the data to update the category
             update_data = {
                 "title": title,
                 "short_description": short_description,
                 "product_type": product_type,
-                "image": image_urls,  
+                "image": image_urls if image_urls else uploaded_images,  # Only update image if it was provided
                 "updated_at": datetime.utcnow().isoformat()  # Set the updated timestamp
             }
 
+            # Perform the update
             update_result = Database.Update(db_handle, Database.CATEGORY_COLLECTION, {"_id": ObjectId(category_id)}, update_data)
+
             if update_result.matched_count == 0:
                 return Response({'error': 'Failed to update category.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Return success response
             return Response({
                 'status': 'Category updated successfully!',
                 'category_id': category_id,
-                'updated_data': update_data
+                'updated_data': update_data,
             }, status=status.HTTP_200_OK)
 
         except Exception as e:
             return Response({'error': f'Error updating category: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 class EditProductAPIView(APIView):
@@ -767,10 +895,12 @@ class EditProductAPIView(APIView):
             
             product = Database.FindOne(db_handle, Database.PRODUCT_COLLECTION, {"_id": ObjectId(product_id)})
             user_role = product['status']
+            print(user_role,'?????')
             if user_role not in ['admin', 'seller']:
                 return Response({'error': 'Role is not valid.'}, status=status.HTTP_403_FORBIDDEN)
             # if user_role == 'seller' and product.get('seller_id') != getsellerID:
             #     return Response({'error': 'You can only update your own products.'}, status=status.HTTP_403_FORBIDDEN)
+            print(request.data,type(request.data))
             name = request.data.get('name', product['name'])
             featured_image = request.data.get('featured_image', product['featured_image'])
             short_description = request.data.get('short_description', product['short_description'])
@@ -787,22 +917,29 @@ class EditProductAPIView(APIView):
                 return Response({'error': 'At least one image is required.'}, status=status.HTTP_400_BAD_REQUEST)
             protocol = "https" if request.is_secure() else "http"
             host = request.get_host()
-            if featured_image:
+            print(featured_image,'??????')
+            print(type(featured_image),'??????')
+            if type(featured_image)!=str :
                 featured_image_name = f"{uuid.uuid4().hex}_{featured_image.name}"
                 featured_image_path = os.path.join(settings.MEDIA_ROOT, 'featured_image', featured_image_name)
                 with open(featured_image_path, 'wb') as f:
                     for chunk in featured_image.chunks():
                         f.write(chunk)
                 featured_image_url = f"{protocol}://{host}/media/gallery_images/{featured_image_name}"
+            else:
+                featured_image_url = product['featured_image']
             gallery_image_paths =[]
-            for gallery_image in gallery_images:
-                gallery_image_name = f"{uuid.uuid4().hex}_{gallery_image.name}"
-                gallery_image_path = os.path.join(settings.MEDIA_ROOT, 'gallery_images', gallery_image_name)
-                with open(gallery_image_path, 'wb') as f:
-                    for chunk in gallery_image.chunks():
-                        f.write(chunk)
-                image_url = f"{protocol}://{host}/media/gallery_images/{gallery_image_name}"
-                gallery_image_paths.append(image_url)
+            if type(gallery_images) !=str:
+                for gallery_image in gallery_images:
+                    gallery_image_name = f"{uuid.uuid4().hex}_{gallery_image.name}"
+                    gallery_image_path = os.path.join(settings.MEDIA_ROOT, 'gallery_images', gallery_image_name)
+                    with open(gallery_image_path, 'wb') as f:
+                        for chunk in gallery_image.chunks():
+                            f.write(chunk)
+                    image_url = f"{protocol}://{host}/media/gallery_images/{gallery_image_name}"
+                    gallery_image_paths.append(image_url)
+            else:
+                gallery_image_paths = product.get('gallery_images', [])
             tags = tag_string.split(',') 
             size = sizes.split(',') 
             color = colors.split(',')
@@ -820,7 +957,6 @@ class EditProductAPIView(APIView):
                 'updated_at': datetime.utcnow().isoformat()  # Set the updated timestamp
             }
             update_result = Database.Update(db_handle, Database.PRODUCT_COLLECTION, {"_id": ObjectId(product_id)}, updated_product_data)
-            print(update_result,'???????')
             if update_result.matched_count == 0:
                 return Response({'error': 'Failed to update product.'}, status=status.HTTP_400_BAD_REQUEST)
             return Response({
@@ -846,19 +982,19 @@ class DeleteProductAPIView(APIView):
             if not product:
                 return Response({"status":status.HTTP_200_OK,"message":"Product not found."})
             user_role = product['status']
-            if user_role == 'admin':
+            if user_role:
                 delete_result = Database.Delete(db_handle, Database.PRODUCT_COLLECTION, {"_id": ObjectId(product_id)})
                 if delete_result and delete_result.deleted_count > 0:
                     return Response({"status": status.HTTP_200_OK, "message": "Product deleted successfully."})
                 else:
                     return Response({"status": status.HTTP_400_BAD_REQUEST, "message": "Failed to delete product."})
-            elif user_role == 'seller' and product.get('seller_id') == getsellerID:
-                # Only the seller who created the product can delete it
-                delete_result = Database.Delete(db_handle, Database.PRODUCT_COLLECTION, {"_id": ObjectId(product_id)})
-                if delete_result and delete_result.deleted_count > 0:
-                    return Response({"status": status.HTTP_200_OK, "message": "Product deleted successfully."})
-                else:
-                    return Response({"status": status.HTTP_400_BAD_REQUEST, "message": "Failed to delete product."})
+            # elif user_role == 'seller' and product.get('seller_id') == getsellerID:
+            #     # Only the seller who created the product can delete it
+            #     delete_result = Database.Delete(db_handle, Database.PRODUCT_COLLECTION, {"_id": ObjectId(product_id)})
+            #     if delete_result and delete_result.deleted_count > 0:
+            #         return Response({"status": status.HTTP_200_OK, "message": "Product deleted successfully."})
+            #     else:
+            #         return Response({"status": status.HTTP_400_BAD_REQUEST, "message": "Failed to delete product."})
             else:
                 return Response({"status": status.HTTP_403_FORBIDDEN, "message": "You are not authorized to delete this product."})
         except Exception as e:
@@ -877,7 +1013,7 @@ class AdminApproveProduct(APIView):
             # Get product and status details from request
             product_id = request.data.get('product_id')
             status_value = request.data.get('status')
-            if status_value.lower() not in ['approve', 'decline']:
+            if status_value.lower() not in ['approved', 'declined']:
                 return Response({'error': 'Invalid status. It should be either "approve" or "decline".'}, status=status.HTTP_400_BAD_REQUEST)
             status_value = status_value.title()
             db_handle, _ = get_db_handle()
@@ -934,7 +1070,3 @@ class AdminApproveProduct(APIView):
                 'message': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-# square the list
-my_list = [2, 3, 5, 7, 11]
-square_list = [i**2 for i in my_list]
-print(square_list,'????')
