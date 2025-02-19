@@ -1,4 +1,5 @@
 from os import error
+import os
 import stat
 from django.test import TestCase
 from rest_framework.test import APITestCase
@@ -12,6 +13,14 @@ from datetime import datetime, timedelta
 from django.conf import settings
 from django.core.mail import send_mail
 from django.test.utils import override_settings
+from django.core.files.uploadedfile import SimpleUploadedFile
+import jwt
+from django.core.files.uploadedfile import SimpleUploadedFile
+import jwt
+from bson import ObjectId
+from django.utils import timezone
+
+
 
 # Create your tests here.
 
@@ -234,7 +243,7 @@ class AdminApproveSellerTest(APITestCase):
     @override_settings(EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend')
     def test_approve_seller_and_login(self):
         print('Testing approve seller...')
-        # print(f"Accessing seller_id: {self.seller_id}")  # Print to check if seller_id is accessible
+        # print(f"Accessing seller_id: {self.seller_id}")  # Print to check if seller_id is accessible    
         _data = {
             "seller_id": str('6773e332e3cc0d331271c329'),  # Correct key 'seller_id'
             "status": 'approve'
@@ -242,7 +251,7 @@ class AdminApproveSellerTest(APITestCase):
         response = self.client.post('/api/approved-seller', data=_data, format='json')
         response_data = response.json()
         print('response_data',response_data)
-        print('approve_data', response_data['status'])
+        print('approve_data', response_data['status'])   
         # Assert the response
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response_data['message'], 'Seller account approved and email sent.')
@@ -266,6 +275,18 @@ class AdminApproveSellerTest(APITestCase):
         self.assertEqual(response_data['message'], 'Seller account declined and email sent.')
         self.assertEqual(response_data['status'], status.HTTP_200_OK)
         
+from django.urls import reverse
+def get_admin_token(client, email, password):
+    """
+    Helper function to log in as an admin and retrieve the authentication token.
+    Replace this with your actual login mechanism.
+    """
+    login_url = reverse('customer-login')  # Replace 'login' with your actual login URL name
+    data = {'email': email, 'password': password}
+    response = client.post(login_url, data, format='json')
+    assert response.status_code == status.HTTP_200_OK # or whatever status your login returns
+    return response.data['token']
+
 
 class PasswordResetRequestTest(APITestCase):
     def setUp(self):
@@ -377,3 +398,471 @@ class PasswordResetConfirmTest(APITestCase):
         print("Valid token response:", _data)
 
 
+
+        
+from rest_framework.test import APITestCase, APIClient
+#admin add category test case
+# Ensure the correct reverse name and URL are used
+from django.urls import reverse
+
+class AdminAddCategory(APITestCase):
+    def setUp(self):
+        db_handle, client = get_db_handle()
+        self.user_collection = db_handle.user_collection
+        self.client = APIClient()
+        try:
+            self.admin_token = get_admin_token(self.client, 'admin@gmail.com', '12345')  # Get the admin token
+        except Exception as e:
+            print(f"Error during setUp: {e}")
+            raise
+
+    def test_add_category_success(self):
+        """
+        Test case to verify that an admin can successfully add a new category
+        with multiple images.
+        """
+        login_url = '/api/customer-login'
+        category_url = '/api/add-category'  # Replace with the actual URL for adding categories
+
+        # Authenticate and get the admin token
+        _data = {
+            "email": 'admin@gmail.com',  # Using the valid admin email
+            "password": "12345"
+        }
+        _response = self.client.post(login_url, data=_data, format='json')
+
+        # Check if login was successful (status code 200)
+        self.assertEqual(_response.status_code, status.HTTP_200_OK)
+
+        # Assuming the response contains the token, extract it
+        self.admin_token = _response.data.get('token')
+        
+        # Ensure the token is returned in the response
+        self.assertIsNotNone(self.admin_token, "Token is missing in login response")
+        
+        # Prepare test data for category creation
+        data = {
+            'title': 'Diamond Jewelry',
+            'short_description': 'A brief description for the new category.',
+            'product_type': 'silver1',  # Ensure this is unique for the test
+            'image': 'tiger.avif',
+        }
+        image_name = 'tiger.avif' 
+        # Prepare image files (create dummy files)
+        image_path = os.path.join(settings.MEDIA_ROOT, 'category_images', image_name)
+        print(image_path)
+        if not os.path.exists(image_path):
+            self.fail(f"Test image not found at {image_path}")
+        img = open(image_path, 'rb')
+        files = {'image': img}
+
+        # Update the 'data' dictionary with the files
+        data.update(files)
+        
+        # Set the authorization header with the admin token
+        self.client.credentials(HTTP_AUTHORIZATION=f'{self.admin_token}')
+
+        try:
+            _response = self.client.post('/api/add-category', data, format='multipart')
+            _data = _response.json()
+            print(_data,'data')
+            # Assertions
+            self.assertEqual(_response.status_code, status.HTTP_201_CREATED)
+            self.assertEqual(_data['message'], "Category added successfully.")
+            self.assertIn(_data['data']['title'],'Diamond Jewelry')
+            self.assertIsInstance(_data['data']['image'], list)
+            self.assertEqual(len(_data['data']['image']), 1)  # Check if all images are in response
+        finally:
+            img.close()
+        
+
+    def test_add_category_missing_fields(self):
+        """
+        Test case to verify that the API returns an error if the required fields are missing.
+        """
+        login_url = '/api/customer-login'
+        category_url = '/api/add-category'
+        _data = {
+            "email": 'admin@gmail.com',  # Using the valid admin email
+            "password": "12345"
+        }
+        _response = self.client.post(login_url, data=_data, format='json')
+
+        # Check if login was successful (status code 200)
+        self.assertEqual(_response.status_code, status.HTTP_200_OK)
+
+        # Assuming the response contains the token, extract it
+        self.admin_token = _response.data.get('token')
+        
+        # Ensure the token is returned in the response
+        self.assertIsNotNone(self.admin_token, "Token is missing in login response")
+        # Prepare test data with missing fields
+        data = {
+            'title': '',  # Empty title
+            'short_description': 'this is image',
+            'product_type': ''  # Empty product type
+        }
+        self.client.credentials(HTTP_AUTHORIZATION=f'{self.admin_token}')
+        # Make the API request
+        response = self.client.post(category_url, data, format='json')
+        # Assert the response status code
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Assert the error message for missing fields
+        response_data = response.json()
+        self.assertIn('error', response_data)
+        self.assertEqual(response_data['error'], 'All fields are required.')
+
+
+#get categories according to product type
+class GetCategoriesByProductType(APITestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    def test_get_categories_by_product_type(self):
+        login_url = '/api/customer-login'
+        url = '/api/get-category'
+        _data = {
+            "email": 'admin@gmail.com',  # Using the valid admin email
+            "password": "12345"
+        }
+        _response = self.client.post(login_url, data=_data, format='json')
+
+        # Check if login was successful (status code 200)
+        self.assertEqual(_response.status_code, status.HTTP_200_OK)
+        self.admin_token = _response.data.get('token')
+        self.client.credentials(HTTP_AUTHORIZATION=f'{self.admin_token}')
+        response = self.client.post(url, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+
+class AddProductTestCase(APITestCase):
+    def setUp(self):
+        self.client = APIClient()
+        login_url = '/api/customer-login'
+        category_url = '/api/add-category'
+        add_product_url = '/api/add-product'
+
+        # Authenticate and get the admin token
+        admin_data = {
+            "email": 'admin@gmail.com',  # Using the valid admin email
+            "password": "12345"
+        }
+        _response = self.client.post(login_url, data=admin_data, format='json')
+
+        # Check if login was successful (status code 200)
+        self.assertEqual(_response.status_code, status.HTTP_200_OK)
+        self.admin_token = _response.data.get('token')
+        print(self.admin_token,'self.admin_token')
+        self.assertIsNotNone(self.admin_token, "Admin token is missing in login response")
+        
+        # Seller login and token retrieval
+        seller_data = {
+            "email": 'ram@yopmail.com',
+            "password": "123456"
+        }
+        seller_response = self.client.post(login_url, data=seller_data, format='json')
+        print(seller_response.status_code,'seller_response++++++++++++++++')
+        self.assertEqual(seller_response.status_code, status.HTTP_200_OK)
+        self.seller_token = seller_response.data.get('token')
+        self.assertIsNotNone(self.seller_token, "Seller token is missing in login response")
+    
+        
+    def test_admin_can_add_product(self):
+        """Test that an admin can successfully add a product"""
+        login_url = '/api/customer-login'
+        add_product_url = '/api/add-product'
+        admin_data = {
+            "email": 'admin@gmail.com',  # Using the valid admin email
+            "password": "12345"
+        }
+        _response = self.client.post(login_url, data=admin_data, format='json')
+        print(_response,'response inside test')
+        self.admin_token = _response.data.get('token')
+        self.client.credentials(HTTP_AUTHORIZATION=f'{self.admin_token}')
+
+        product_data = {
+            'name': 'Test Product',
+            # 'featured_image': featured_image_url,
+            'short_description': 'This is a test product',
+            'discount_price': '90',
+            'discount_percentage': '10',
+            'price': '100',
+            'tag': 'electronics,gadgets',
+            'sizes': 'M,L,XL',
+            'colors': 'Red,Blue',
+            'category_id': str(ObjectId()),  # Mock category ID
+            'sku': 'SKU-12345',
+        }
+        image_name = 'pexels-photo-1519088.jpeg'
+        # Prepare image files (create dummy files)
+        image_path = os.path.join(settings.MEDIA_ROOT, 'gallery_images', image_name)
+        print(image_path)
+        if not os.path.exists(image_path):
+            self.fail(f"Test image not found at {image_path}")
+        img = open(image_path, 'rb')
+        files = {'image': img}
+
+        # Update the 'data' dictionary with the files
+        product_data.update(files)
+        response = self.client.post('/api/add-product', product_data, format='multipart')
+        _data = response.json()
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(_data['message'], "Product added successfully")
+    
+    def test_add_product_missing_fields(self):
+        """Test adding a product with missing required fields"""
+        data = {
+            'name': '', 
+            'short_description': 'This is a test description',
+            'price': '',
+            'discount_percentage': '',
+            'discount_price': '',
+            'tag': '',
+            'sizes': '',
+            'colors': '',
+            'category_id': self.category_id,
+            'sku': '',
+        }
+        response = self.client.post(self.add_product_url, data, format='json')
+        print(response,'response')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('error', response.data)
+
+
+
+#admin can get user list
+class GetUserListTestCase(APITestCase):
+    def setUp(self):
+        self.client = APIClient()
+        login_url = '/api/customer-login'
+
+        # Authenticate and get the admin token
+        admin_data = {
+            "email": 'admin@gmail.com',  # Using the valid admin email
+            "password": "12345"
+        }
+        _response = self.client.post(login_url, data=admin_data, format='json')
+
+        # Check if login was successful (status code 200)
+        self.assertEqual(_response.status_code, status.HTTP_200_OK)
+        self.admin_token = _response.data.get('token')
+        self.assertIsNotNone(self.admin_token, "Admin token is missing in login response")
+
+        # Seller login and token retrieval
+        seller_data = {
+            "email": 'ram@yopmail.com',
+            "password": "123456"
+        }
+        seller_response = self.client.post(login_url, data=seller_data, format='json')
+
+        # Check if seller login is successful
+        self.assertEqual(seller_response.status_code, status.HTTP_200_OK)
+        self.seller_token = seller_response.data.get('token')
+        self.assertIsNotNone(self.seller_token, "Seller token is missing in login response")
+
+        # Buyer login and token retrieval
+        buyer_data = {
+            "email": 'shyam@yopmail.com',
+            "password": "12345"
+        }
+        buyer_response = self.client.post(login_url, data=buyer_data, format='json')
+        # Check if buyer login is successful
+        self.assertEqual(buyer_response.status_code, status.HTTP_200_OK)
+        self.buyer_token = buyer_response.data.get('token')
+        self.assertIsNotNone(self.buyer_token, "Buyer token is missing in login response")
+
+    def test_admin_get_user_list(self):
+        """Test that an admin can successfully fetch user list"""
+        get_user_list_url = '/api/get-user-list'  # Adjust this to your actual endpoint
+        self.client.credentials(HTTP_AUTHORIZATION=f'{self.admin_token}')
+
+        response = self.client.post(get_user_list_url, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('data', response.data)
+        self.assertIn('buyers', response.data)
+        self.assertIn('message', response.data)
+        self.assertEqual(response.data['message'], "Users fetched successfully.")
+
+    def test_seller_get_user_list(self):
+        """Test that a seller can only fetch their own information"""
+        get_user_list_url = '/api/get-user-list'  # Adjust this to your actual endpoint
+        self.client.credentials(HTTP_AUTHORIZATION=f'{self.seller_token}')
+
+        response = self.client.post(get_user_list_url, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('data', response.data)
+        self.assertIn('buyers', response.data)
+        self.assertEqual(len(response.data['data']), 1)  # Only the seller's info
+        self.assertEqual(response.data['buyers'], [])
+
+    def test_buyer_get_user_list(self):
+        """Test that a buyer can only fetch their own information"""
+        get_user_list_url = '/api/get-user-list'  # Adjust this to your actual endpoint
+        self.client.credentials(HTTP_AUTHORIZATION=f' {self.buyer_token}')
+
+        response = self.client.post(get_user_list_url, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('data', response.data)
+        self.assertIn('buyers', response.data)
+        self.assertEqual(len(response.data['buyers']), 1)  # Only the buyer's info
+        self.assertEqual(response.data['data'], [])
+
+    def test_invalid_token(self):
+        """Test the case where an invalid token is used"""
+        get_user_list_url = '/api/get-user-list'  # Adjust this to your actual endpoint
+        self.client.credentials(HTTP_AUTHORIZATION='Token invalid_token')
+
+        response = self.client.post(get_user_list_url, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn('error', response.data)
+        self.assertEqual(response.data['error'], 'Please login again or check the token.')
+
+    def test_user_not_found(self):
+        """Test the case where the seller ID is not found"""
+        get_user_list_url = '/api/get-user-list'  # Adjust this to your actual endpoint
+        invalid_token = 'Bearer invalid_user_token'  # Use an invalid token to simulate this scenario
+        self.client.credentials(HTTP_AUTHORIZATION=invalid_token)
+
+        response = self.client.post(get_user_list_url, format='json')
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn('error', response.data)
+        self.assertEqual(response.data['error'], 'User not found.')
+
+
+#Admin can get all product list and seller get own product list
+class GetAllProductListTestCase(APITestCase):
+
+    def setUp(self):
+        """Set up the test environment and create test users."""
+        self.client = APIClient()
+        login_url = '/api/customer-login'
+
+        # Authenticate and get the admin token
+        admin_data = {
+            "email": 'admin@gmail.com',  # Using the valid admin email
+            "password": "12345"
+        }
+        _response = self.client.post(login_url, data=admin_data, format='json')
+
+        # Check if login was successful (status code 200)
+        self.assertEqual(_response.status_code, status.HTTP_200_OK)
+        self.admin_token = _response.data.get('token')
+        self.assertIsNotNone(self.admin_token, "Admin token is missing in login response")
+
+        # Seller login and token retrieval
+        # seller_data = {
+        #     "email": 'ram@yopmail.com',
+        #     "password": "123456"
+        # }
+        # seller_response = self.client.post(login_url, data=seller_data, format='json')
+
+        # # Check if seller login is successful
+        # self.assertEqual(seller_response.status_code, status.HTTP_200_OK)
+        # self.seller_token = seller_response.data.get('token')
+        # self.assertIsNotNone(self.seller_token, "Seller token is missing in login response")
+
+        # Buyer login and token retrieval
+        # buyer_data = {
+        #     "email": 'shyam@yopmail.com',
+        #     "password": "12345"
+        # }
+        # buyer_response = self.client.post(login_url, data=buyer_data, format='json')
+        # # Check if buyer login is successful
+        # self.assertEqual(buyer_response.status_code, status.HTTP_200_OK)
+        # self.buyer_token = buyer_response.data.get('token')
+        # self.assertIsNotNone(self.buyer_token, "Buyer token is missing in login response")
+
+        # Create products in the database for testing
+        self.product_data_1 = {
+            "_id": "67766203f6f48ba2ef9502d0",
+            "name": "Product A",
+            "price": 100,
+            "sellert_id": 'seller_id_123',  # Simulating seller ID
+            "category": "Electronics",
+        }
+        self.product_data_2 = {
+            "_id": "67766203f6f48ba2ef9502d0",
+            "name": "Product B",
+            "price": 200,
+            "sellert_id": 'seller_id_124',  # Another seller ID
+            "category": "Home Appliances",
+        }
+
+        # Save products to the database via the product creation API (this assumes a URL exists for product creation)
+        self.client.post('/api/add-product', self.product_data_1, format='json')
+        self.client.post('/api/add-product', self.product_data_2, format='json')
+
+    def test_admin_can_get_all_products(self):
+        """Test that admin can get the list of all products."""
+        get_product_list_url = '/api/get-all-product-list'  # The endpoint to fetch all products
+    
+        self.client.credentials(HTTP_AUTHORIZATION=f'{self.admin_token}')
+
+        response = self.client.post(get_product_list_url, format='json')
+        print(response,'check response in test_admin_can_get_all_products ')
+        # Assert that the status code is OK and products are returned
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('products', response.data)
+        self.assertEqual(len(response.data['products']), 2)  # Since we added 2 products in setup
+
+    def test_seller_can_get_their_own_products(self):
+        """Test that seller can only see their own products."""
+        get_product_list_url = '/api/get-all-product-list'  # The endpoint to fetch the seller's products
+        self.client.credentials(HTTP_AUTHORIZATION=f' {self.seller_token}')
+
+        # Test the API endpoint for getting seller's products
+        response = self.client.post(get_product_list_url, format='json')
+
+        # Assert that the status code is OK and seller sees only their own product
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('products', response.data)
+        self.assertEqual(len(response.data['products']), 1)  # Only 1 product should be returned for the seller
+
+    def test_no_products_found(self):
+        """Test that no products found scenario is handled."""
+        # Simulate a seller with no products
+        empty_seller_data = {
+            "email": 'ram@yopmail.com',
+            "password": "123456"
+        }
+
+        # Register a new seller with no products
+        self.client.post('/api/customer-register', data=empty_seller_data, format='json')
+        empty_seller_response = self.client.post(self.login_url, data=empty_seller_data, format='json')
+        self.assertEqual(empty_seller_response.status_code, status.HTTP_200_OK)
+        empty_seller_token = empty_seller_response.data.get('token')
+
+        # Test the scenario for the new seller (no products)
+        self.client.credentials(HTTP_AUTHORIZATION=f' {empty_seller_token}')
+        response = self.client.post('/api/get-all-product-list', format='json')
+
+        # Assert the response status code and error message
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn('error', response.data)
+        self.assertEqual(response.data['error'], 'No products found.')
+
+    def test_invalid_token(self):
+        """Test that an invalid token returns a 403 error."""
+        invalid_token = 'invalid_token'
+        self.client.credentials(HTTP_AUTHORIZATION=f' {invalid_token}')
+        
+        response = self.client.post('/api/get-all-product-list', format='json')
+
+        # Assert the response status code and error message
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn('error', response.data)
+        self.assertEqual(response.data['error'], 'Please login again or check the token.')
+
+    def test_error_handling(self):
+        """Test that errors are handled gracefully (simulate a database error)."""
+        self.client.credentials(HTTP_AUTHORIZATION=f' {self.seller_token}')
+        
+        # Force a database error or invalid query (this is simulated for testing purposes)
+        with self.assertRaises(Exception):
+            response = self.client.post('/api/get-all-product-list', format='json')
+
+        # Assert the error response
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertIn('error', response.data)
+        self.assertEqual(response.data['error'], 'Error retrieving product list: Database error')
