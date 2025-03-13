@@ -19,7 +19,8 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 import jwt
 from bson import ObjectId
 from django.utils import timezone
-
+from django.urls import reverse
+from rest_framework.test import APITestCase, APIClient
 
 
 # Create your tests here.
@@ -35,7 +36,7 @@ class RegisterTestCase(APITestCase):
     def create_user(self):
         
         try:
-            unique_email = f"ram@yopmail.com"
+            unique_email = f"ram1@yopmail.com"
             # unique_email = f"admin{int(time.time())}@yopmail.com"
             _data = {
                 "first_name":"ram",
@@ -44,7 +45,7 @@ class RegisterTestCase(APITestCase):
                 "password":"12345",
                 "username":"ram",
                 "role": "seller",
-                "phone_number": "1234567890",
+                "phone_number": "1234567894",
                 "address": [
                     {
                     "street": "123 Main St",
@@ -58,6 +59,7 @@ class RegisterTestCase(APITestCase):
             _response = self.client.post('/api/customer-register', data = _data, format='json')
             print(_response.status_code,'response')
             _data = _response.json()
+            print('data',_data)
             self.assertEqual(_data.status_code, status.HTTP_201_CREATED)
             self.assertEqual(_data['data']['email'], unique_email)
             self.assertEqual(_data['message'], "User registered successfully.")
@@ -275,7 +277,7 @@ class AdminApproveSellerTest(APITestCase):
         self.assertEqual(response_data['message'], 'Seller account declined and email sent.')
         self.assertEqual(response_data['status'], status.HTTP_200_OK)
         
-from django.urls import reverse
+
 def get_admin_token(client, email, password):
     """
     Helper function to log in as an admin and retrieve the authentication token.
@@ -398,9 +400,19 @@ class PasswordResetConfirmTest(APITestCase):
         print("Valid token response:", _data)
 
 
+def get_admin_token(client, email, password):
+    """
+    Helper function to log in as an admin and retrieve the authentication token.
+    Replace this with your actual login mechanism.
+    """
+    login_url = reverse('customer-login')  # Replace 'login' with your actual login URL name
+    data = {'email': email, 'password': password}
+    response = client.post(login_url, data, format='json')
+    assert response.status_code == status.HTTP_200_OK # or whatever status your login returns
+    return response.data['token']
 
         
-from rest_framework.test import APITestCase, APIClient
+
 #admin add category test case
 # Ensure the correct reverse name and URL are used
 from django.urls import reverse
@@ -411,7 +423,7 @@ class AdminAddCategory(APITestCase):
         self.user_collection = db_handle.user_collection
         self.client = APIClient()
         try:
-            self.admin_token = get_admin_token(self.client, 'admin@gmail.com', '12345')  # Get the admin token
+            self.admin_token = get_admin_token(self.client, 'admin@yopmail.com', '123456')  # Get the admin token
         except Exception as e:
             print(f"Error during setUp: {e}")
             raise
@@ -426,8 +438,8 @@ class AdminAddCategory(APITestCase):
 
         # Authenticate and get the admin token
         _data = {
-            "email": 'admin@gmail.com',  # Using the valid admin email
-            "password": "12345"
+            "email": 'admin@yopmail.com',  # Using the valid admin email
+            "password": "123456"
         }
         _response = self.client.post(login_url, data=_data, format='json')
 
@@ -442,9 +454,9 @@ class AdminAddCategory(APITestCase):
         
         # Prepare test data for category creation
         data = {
-            'title': 'Diamond Jewelry',
+            # 'title': 'Diamond Jewelry',
             'short_description': 'A brief description for the new category.',
-            'product_type': 'silver1',  # Ensure this is unique for the test
+            'product_category': 'silver1234',  # Ensure this is unique for the test
             'image': 'tiger.avif',
         }
         image_name = 'tiger.avif' 
@@ -469,7 +481,6 @@ class AdminAddCategory(APITestCase):
             # Assertions
             self.assertEqual(_response.status_code, status.HTTP_201_CREATED)
             self.assertEqual(_data['message'], "Category added successfully.")
-            self.assertIn(_data['data']['title'],'Diamond Jewelry')
             self.assertIsInstance(_data['data']['image'], list)
             self.assertEqual(len(_data['data']['image']), 1)  # Check if all images are in response
         finally:
@@ -483,13 +494,13 @@ class AdminAddCategory(APITestCase):
         login_url = '/api/customer-login'
         category_url = '/api/add-category'
         _data = {
-            "email": 'admin@gmail.com',  # Using the valid admin email
-            "password": "12345"
+            "email": 'admin@yopmail.com',  # Using the valid admin email
+            "password": "123456"
         }
         _response = self.client.post(login_url, data=_data, format='json')
 
         # Check if login was successful (status code 200)
-        self.assertEqual(_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(_response.status_code, status.HTTP_201_OK)
 
         # Assuming the response contains the token, extract it
         self.admin_token = _response.data.get('token')
@@ -523,8 +534,8 @@ class GetCategoriesByProductType(APITestCase):
         login_url = '/api/customer-login'
         url = '/api/get-category'
         _data = {
-            "email": 'admin@gmail.com',  # Using the valid admin email
-            "password": "12345"
+            "email": 'admin@yopmail.com',  # Using the valid admin email
+            "password": "123456"
         }
         _response = self.client.post(login_url, data=_data, format='json')
 
@@ -764,17 +775,6 @@ class GetAllProductListTestCase(APITestCase):
         self.seller_token = seller_response.data.get('token')
         self.assertIsNotNone(self.seller_token, "Seller token is missing in login response")
 
-        # Buyer login and token retrieval
-        # buyer_data = {
-        #     "email": 'shyam@yopmail.com',
-        #     "password": "12345"
-        # }
-        # buyer_response = self.client.post(login_url, data=buyer_data, format='json')
-        # # Check if buyer login is successful
-        # self.assertEqual(buyer_response.status_code, status.HTTP_200_OK)
-        # self.buyer_token = buyer_response.data.get('token')
-        # self.assertIsNotNone(self.buyer_token, "Buyer token is missing in login response")
-
         # Create products in the database for testing
         self.product_data_1 = {
             "name": "Product A",
@@ -877,3 +877,5 @@ class GetAllProductListTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertIn('error', response.data)
         self.assertEqual(response.data['error'], 'Error retrieving product list: Database error')
+
+
