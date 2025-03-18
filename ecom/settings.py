@@ -162,9 +162,9 @@ MEDIA_URL = '/media/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.gmail.com'  # Gmail SMTP server
-EMAIL_PORT = 587  # Port for TLS
-EMAIL_USE_TLS = True  # Use TLS for secure connection
-EMAIL_HOST_USER = 'aashish.tws@gmail.com'  # Your email
-EMAIL_HOST_PASSWORD = 'kjhw qtsk lzyk sgut'  # Your email password
-DEFAULT_FROM_EMAIL = 'aashish.tws@gmail.com'
+EMAIL_HOST = 'smtp.gmail.com' # Gmail SMTP server
+EMAIL_PORT = 587 # Port for TLS
+EMAIL_USE_TLS = True # Use TLS for secure connection
+EMAIL_HOST_USER = 'testtester12001@gmail.com' # Your email
+EMAIL_HOST_PASSWORD = 'wqrp kpsy ufoo unpb' # Your email password
+DEFAULT_FROM_EMAIL = 'testtester12001@gmail.com'
